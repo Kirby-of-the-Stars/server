@@ -5,7 +5,6 @@ const ON_CANCEL = require('./cancel');
 const RequestCancelled = require('./exceptions/RequestCancelled');
 const { logScope } = require('./logger');
 const parse = require('url').parse;
-const format = require('url').format;
 
 const logger = logScope('request');
 const timeoutThreshold = 10 * 1000;
@@ -84,6 +83,10 @@ const request = (
 	cancelRequest
 ) => {
 	const url = parse(receivedUrl);
+	const logUrl = receivedUrl.replace(
+		/([?&](?:token|userid|key|signature)=)[^&]*/gi,
+		'$1[redacted]'
+	);
 	/* @type {Partial<Record<string,string>>} */
 	const headers = receivedHeaders || {};
 	const options = configure(
@@ -102,13 +105,13 @@ const request = (
 	);
 
 	return new Promise((resolve, reject) => {
-		logger.debug(`Start requesting ${receivedUrl}`);
+		logger.debug(`Start requesting ${logUrl}`);
 
 		const clientRequest = create(url, proxy)(options);
 		const destroyClientRequest = function () {
 			// We destroy the request and throw RequestCancelled
 			// when the request has been cancelled.
-			clientRequest.destroy(new RequestCancelled(format(url)));
+			clientRequest.destroy(new RequestCancelled(logUrl));
 		};
 
 		cancelRequest?.on(ON_CANCEL, destroyClientRequest);
@@ -118,7 +121,7 @@ const request = (
 			.setTimeout(timeoutThreshold, () => {
 				logger.warn(
 					{
-						url: format(url),
+						url: logUrl,
 					},
 					`The request timed out, or the requester didn't handle the response.`
 				);
@@ -147,14 +150,31 @@ const request = (
 		/** @param {http.IncomingMessage} response */
 		(response) => {
 			if (cancelRequest?.cancelled ?? false)
-				return Promise.reject(new RequestCancelled(format(url)));
+				return Promise.reject(new RequestCancelled(logUrl));
 
 			if ([201, 301, 302, 303, 307, 308].includes(response.statusCode)) {
 				const redirectTo = url.resolve(
 					response.headers.location || url.href
 				);
 
-				logger.debug(`Redirect to ${redirectTo}`);
+				logger.debug(
+					`Redirect to ${redirectTo.replace(/([?&](?:token|userid|key|signature)=)[^&]*/gi, '$1[redacted]')}`
+				);
+				const target = parse(redirectTo);
+				if (
+					target.hostname !== url.hostname ||
+					target.protocol !== 'https:'
+				) {
+					// Do not forward credentials to another host or downgrade to HTTP.
+					for (const key of Object.keys(headers)) {
+						if (
+							['cookie', 'authorization'].includes(
+								key.toLowerCase()
+							)
+						)
+							delete headers[key];
+					}
+				}
 				delete headers.host;
 				return request(method, redirectTo, headers, body, proxy);
 			}

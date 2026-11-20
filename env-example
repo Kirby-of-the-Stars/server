@@ -1,2 +1,8 @@
 HTTP_PROXY_PORT=8080
 HTTPS_PROXY_PORT=8081
+
+# Optional login credentials; keep real values outside version control.
+QQ_COOKIE=
+KUGOU_COOKIE=
+MIGU_PACMTOKEN=
+BILIBILI_COOKIE=

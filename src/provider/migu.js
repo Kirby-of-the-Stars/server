@@ -1,78 +1,107 @@
-const insure = require('./insure');
+// Protocol adapted from Domdkw/miguMusic-api-enhanced (MIT); see THIRD_PARTY_NOTICES.md.
 const select = require('./select');
 const request = require('../request');
 const { getManagedCacheStorage } = require('../cache');
+const { cookieToMap } = require('../utilities');
+const crypto = require('../crypto');
 
+const credential = cookieToMap(process.env.MIGU_COOKIE || '');
+const pacmtoken = process.env.MIGU_PACMTOKEN || credential.pacmtoken || '';
+const secure = Buffer.from('Jk8qzuePiJ1qE3mDYhLQ3T73DtDoAhLP');
 const headers = {
-	origin: 'http://music.migu.cn/',
-	referer: 'http://m.music.migu.cn/v3/',
-	// cookie: 'migu_music_sid=' + (process.env.MIGU_COOKIE || null),
-	aversionid: process.env.MIGU_COOKIE || null,
-	channel: '0146921',
+	referer: 'https://music.migu.cn/',
+	channel: '014X031',
+	subchannel: '014X031',
+	ua: 'Android_migu',
+	version: '6.8.8',
+	activityId: 'MUSIC-WWW',
+	birth: 'h5page',
+	...(pacmtoken && { pacmtoken }),
 };
 
-const format = (song) => {
-	const singerId = song.singerId.split(/\s*,\s*/);
-	const singerName = song.singerName.split(/\s*,\s*/);
-	return {
-		// id: song.copyrightId,
-		id: song.id,
-		name: song.title,
-		album: { id: song.albumId, name: song.albumName },
-		artists: singerId.map((id, index) => ({ id, name: singerName[index] })),
-	};
-};
-
-const search = (info) => {
+const search = async (info) => {
 	const url =
-		'https://m.music.migu.cn/migu/remoting/scr_search_tag?' +
-		'keyword=' +
-		encodeURIComponent(info.keyword) +
-		'&type=2&rows=20&pgc=1';
-
-	return request('GET', url, headers)
-		.then((response) => response.json())
-		.then((jsonBody) => {
-			const list = ((jsonBody || {}).musics || []).map(format);
-			const matched = select(list, info);
-			return matched ? matched.id : Promise.reject();
+		'https://app.c.nf.migu.cn/bmw/search/song/v1.0?' +
+		new URLSearchParams({
+			pageNo: '1',
+			text: info.keyword.replace(' - ', ' '),
 		});
+	const response = await request('GET', url, headers);
+	const body = await response.json();
+	if (body.code !== '000000')
+		throw new Error(`Migu search failed: ${body.code}`);
+	const songs = (body.data?.items || [])
+		.filter((item) => item.song)
+		.map(({ song }) => ({
+			id: { contentId: song.contentId, copyrightId: song.copyrightId },
+			name: song.songName,
+			duration: song.duration * 1000,
+			album: { id: song.albumId, name: song.album },
+			artists: song.singerList,
+		}));
+	const matched = select(songs, info);
+	if (!matched) throw new Error('Migu search has no matching song');
+	return matched.id;
 };
 
-const single = (id, format) => {
-	// const url =
-	//	'https://music.migu.cn/v3/api/music/audioPlayer/getPlayInfo?' +
-	//	'dataType=2&' + crypto.miguapi.encryptBody({copyrightId: id.toString(), type: format})
-
+const single = async (id, toneFlag) => {
 	const url =
-		'https://app.c.nf.migu.cn/MIGUM2.0/strategy/listen-url/v2.4?' +
-		'netType=01&resourceType=2&songId=' +
-		id.toString() +
-		'&toneFlag=' +
-		format;
-
-	return request('GET', url, headers)
-		.then((response) => response.json())
-		.then((jsonBody) => {
-			// const {playUrl} = jsonBody.data
-			// return playUrl ? encodeURI('http:' + playUrl) : Promise.reject()
-			const { audioFormatType } = jsonBody.data;
-			if (audioFormatType !== format) return Promise.reject();
-			else return url ? jsonBody.data.url : Promise.reject();
+		'https://app.c.nf.migu.cn/strategy/pc/listen/v2.0?' +
+		new URLSearchParams({
+			contentId: id.contentId,
+			copyrightId: id.copyrightId,
+			scene: '',
+			netType: '01',
+			resourceType: '2',
+			toneFlag,
 		});
+	const response = await request('GET', url, {
+		...headers,
+		signature: '1',
+		deviceId: crypto.random.uuid(),
+		timestamp: String(Date.now()),
+	});
+	if (response.statusCode !== 200)
+		throw new Error(`Migu ${toneFlag} HTTP ${response.statusCode}`);
+	const bytes = await response.body(true);
+	let decoded = bytes;
+	if (bytes[0] === 0xab && bytes[1] === 0xcd && bytes[2] === 1) {
+		decoded = Buffer.alloc(bytes.length - 4);
+		for (let index = 0; index < decoded.length; index++)
+			decoded[index] =
+				bytes[index + 4] + bytes[3] - secure[index % secure.length];
+	}
+	const body = JSON.parse(decoded.toString());
+	const data = body.data;
+	if (!data?.url)
+		throw new Error(
+			`Migu ${toneFlag} returned no audio: ${data?.cannotCode || body.code}; check MIGU_PACMTOKEN login and membership`
+		);
+	if (
+		Number(data.auditionsLength) > 0 ||
+		Number(data.auditionsFlag) > 0 ||
+		data.auditionsTooltips?.includes('试听')
+	) {
+		throw new Error(
+			`Migu ${toneFlag} returned a preview instead of the full track`
+		);
+	}
+	return data.url;
 };
 
-const track = (id) =>
-	Promise.all(
-		// [3, 2, 1].slice(select.ENABLE_FLAC ? 0 : 1)
-		['ZQ24', 'SQ', 'HQ', 'PQ']
-			.slice(select.ENABLE_FLAC ? 0 : 2)
-			.map((format) => single(id, format).catch(() => null))
-	)
-		.then((result) => result.find((url) => url) || Promise.reject())
-		.catch(() => insure().migu.track(id));
-
+const track = async (id) => {
+	const results = await Promise.allSettled(
+		['SQ', 'HQ', 'PQ']
+			.slice(select.ENABLE_FLAC ? 0 : 1)
+			.map((quality) => single(id, quality))
+	);
+	const playable = results.find((result) => result.status === 'fulfilled');
+	if (playable) return playable.value;
+	throw new AggregateError(
+		results.map((result) => result.reason),
+		`Migu has no playable audio for ${id.contentId}`
+	);
+};
 const cs = getManagedCacheStorage('provider/migu');
 const check = (info) => cs.cache(info, () => search(info)).then(track);
-
 module.exports = { check, track };

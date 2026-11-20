@@ -89,3 +89,6 @@ daemon/
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Private deployment certificates
+certs/

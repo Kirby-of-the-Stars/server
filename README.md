@@ -162,25 +162,17 @@ optional arguments:
 将有兴趣的音源代号用 `-o` 传入 UNM 即可使用，像这样：
 
 ```bash
-node app.js -o bilibili ytdlp
+node src/app.js -o qq kuwo kugou migu bodian bilivideo
 ```
 
-| 名称                        | 代号        | 默认启用 | 注意事项                                                                                                              |
-| --------------------------- | ----------- | -------- | --------------------------------------------------------------------------------------------------------------------- |
-| QQ 音乐                     | `qq`        |          | 需要准备自己的 `QQ_COOKIE`（请参阅下方〈环境变量〉处）。必须使用 QQ 登录。                                            |
-| 酷狗音乐                    | `kugou`     | ✅       |                                                                                                                       |
-| 酷我音乐                    | `kuwo`      |          |                                                                                                                       |
-| 波点音乐                    | `bodian`    | ✅       |                                                                                                                       |
-| 咪咕音乐                    | `migu`      | ✅       | 需要准备自己的 `MIGU_COOKIE`（请参阅下方〈环境变量〉处）。                                                            |
-| JOOX                        | `joox`      |          | 需要准备自己的 `JOOX_COOKIE`（请参阅下方〈环境变量〉处）。<br>仅支持 Hong Kong, Macau, Thailand, Malaysia, Indonesia. |
-| YouTube（纯 JS 解析方式）   | `youtube`   |          | 需要 Google 认定的**非中国大陆区域** IP 地址。                                                                        |
-| YouTube（通过 `youtube-dl`) | `youtubedl` |          | 需要自行安装 `youtube-dl`。                                                                                           |
-| YouTube（通过 `yt-dlp`)     | `ytdlp`     | ✅       | 需要自行安装 `yt-dlp`（`youtube-dl` 仍在活跃维护的 fork）。                                                           |
-| B 站音乐                    | `bilibili`  |          |                                                                                                                       |
-| B 站音乐                    | `bilivideo` |          | 在大陆地区外的IP地址可能查询不到某些版权视频（如索尼音乐上传的MV等）                                                  |
-| 第三方网易云 API            | `pyncmd`    |          |                                                                                                                       |
-
-- 支持 `pyncmd` 的 API 服务由 GD studio <https://music.gdstudio.xyz> 提供。
+| 名称 | 代号 | 默认启用 | 配置 |
+| --- | --- | --- | --- |
+| QQ 音乐 | `qq` | ✅ | `QQ_COOKIE`，会员歌曲取决于账号权限 |
+| 酷我音乐 | `kuwo` | ✅ | 无需配置登录 |
+| 酷狗音乐 | `kugou` | ✅ | `KUGOU_COOKIE`，包含同一客户端的 token、userid、dfid 和设备 MID |
+| 咪咕音乐 | `migu` | ✅ | `MIGU_PACMTOKEN`，会员歌曲取决于账号权限 |
+| 波点音乐 | `bodian` | ✅ | 无需配置登录 |
+| B 站视频音频 | `bilivideo` | ✅ | 可选 `BILIBILI_COOKIE`；部分视频受地区限制 |
 
 ### 环境变量
 
@@ -200,8 +192,7 @@ node app.js -o bilibili ytdlp
 | SELECT_MAX_BR         | bool | 选择所有音源中的最高码率替换音频                                                                        | `SELECT_MAX_BR=true`                                             |
 | LOG_LEVEL             | str  | 日志输出等级。请见〈日志等级〉部分。                                                                    | `LOG_LEVEL=debug`                                                |
 | LOG_FILE              | str  | 从 Pino 端设置日志输出的文件位置。也可以用 `*sh` 的输出重导向功能 (`node app.js >> app.log`) 代替       | `LOG_FILE=app.log`                                               |
-| JOOX_COOKIE           | str  | JOOX 音源的 wmid 和 session_key cookie                                                                  | `JOOX_COOKIE="wmid=<your_wmid>; session_key=<your_session_key>"` |
-| MIGU_COOKIE           | str  | 咪咕音源的 aversionid cookie                                                                            | `MIGU_COOKIE="<your_aversionid>"`                                |
+| MIGU_COOKIE           | str  | 咪咕登录 Cookie（支持 pacmtoken 字段）                                                                            | `MIGU_COOKIE="pacmtoken=<your_token>"`                                |
 | QQ_COOKIE             | str  | QQ 音源的 uin 和 qm_keyst cookie                                                                        | `QQ_COOKIE="uin=<your_uin>; qm_keyst=<your_qm_keyst>"`           |
 | YOUTUBE_KEY           | str  | Youtube 音源的 Data API v3 Key                                                                          | `YOUTUBE_KEY="<your_data_api_key>"`                              |
 | SIGN_CERT             | path | 自定义证书文件                                                                                          | `SIGN_CERT="./server.crt"`                                       |
@@ -287,7 +278,7 @@ global.hosts = { 'i.y.qq.com': '59.37.96.220' };
 /**
  * Find matching song from other platforms
  * @param {Number} id netease song id
- * @param {Array<String>||undefined} source support qq, xiami, baidu, kugou, kuwo, migu, joox
+ * @param {Array<String>||undefined} source support qq, kuwo, kugou, migu, bodian, bilivideo
  * @return {Promise<Object>}
  */
 match(418602084, ['qq', 'kuwo', 'migu']).then(console.log);
@@ -366,3 +357,69 @@ match(418602084, ['qq', 'kuwo', 'migu']).then(console.log);
 (This project) [UnblockNeteaseMusic/server](https://github.com/UnblockNeteaseMusic/server): [LGPL-3.0-only](https://spdx.org/licenses/LGPL-3.0-only.html)
 
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FUnblockNeteaseMusic%2Fserver.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FUnblockNeteaseMusic%2Fserver?ref=badge_large)
+
+### 音源匹配与登录
+
+QQ 音源通过 `QQ_COOKIE` 读取登录凭证，支持网页 Cookie 的 `uin`/`qm_keyst`
+及登录响应的 `musicid`/`musickey` 字段。含刷新字段的凭证会在临近过期或
+播放地址为空时尝试刷新；并发请求共用一次刷新。更新后的凭证只保存在当前进程，
+重启后仍读取原配置。会员曲目取决于配置账号的实际权限。
+
+设置 `BILIBILI_COOKIE` 可为 B 站搜索、WBI 和播放信息请求提供登录态。
+B 站视频音源选择带宽最高的可用音频流。匹配时排除时长相差超过 5 秒、
+歌手不符及 Live/Remix/翻唱等版本不符的候选；没有合适候选时继续尝试其他音源。
+
+例如：`node src/app.js -o qq bilivideo kugou migu`。设置 `ENABLE_FLAC=true`
+时 QQ 会优先请求 FLAC。启用的音源及顺序仍由 `-o` 指定。
+
+音源核心回归可使用 Node.js 18+ 执行 `node --test test/provider-regression.cjs`，无需联网或安装测试依赖。
+
+QQ 的搜索、歌曲详情、vkey 请求和 QQ/微信刷新参数参考
+`JMusicKook` 的 `QQMusicClientImpl` 与 `QQMusicCredential`：使用独立的媒体 MID
+构造文件名，批量请求 FLAC/MP3 地址，并在音源探测及 `/package/` 转发时附带
+播放凭证。需要登录的曲目应配置 `-e` 指定本服务的媒体转发地址。
+
+酷我会按字段读取搜索结果及同曲目的其他版本，完整保留播放 URL 中含 `$` 的
+签名参数；`ENABLE_FLAC=true` 时优先请求 FLAC，其次 MP3。音源仍需通过实际
+媒体请求检查，再交给播放器。
+
+
+### 酷狗与咪咕新版接口
+
+酷狗参考 [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi) 的网关搜索、
+`/v5/url` 取流和 Android 签名协议。通过 `KUGOU_COOKIE` 配置以下字段：
+
+```text
+KUGOU_COOKIE=token=<登录令牌>; userid=<账号ID>; dfid=<设备指纹>; KUGOU_API_MID=<设备MID>; appid=1005
+```
+
+令牌必须与客户端平台一致。概念版使用 `KUGOU_API_PLATFORM=lite; appid=3116`；
+这里的 `KUGOU_API_PLATFORM` 是 Cookie 字段。保留登录时的设备 MID 或
+`KUGOU_API_GUID`，不要随意更换设备信息。本服务不会自动登录、刷新酷狗令牌或处理验证码。
+
+咪咕参考 [Domdkw/miguMusic-api-enhanced](https://github.com/Domdkw/miguMusic-api-enhanced)
+的新版搜索与 `/strategy/pc/listen/v2.0` 取流协议，并解码返回的二进制响应。
+设置 `MIGU_PACMTOKEN=<登录令牌>`，也可放在 `MIGU_COOKIE` 的 `pacmtoken` 字段。
+仅返回完整音频；上游要求登录、会员或只给试听时会让其他音源继续匹配。
+
+```text
+MIGU_PACMTOKEN=<登录令牌>
+```
+
+已移除 JOOX、旧 B 站音乐、YouTube 系列和第三方网易云解析源。
+移植的开源代码许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+
+本轮验证：18 项音源核心回归通过；webpack 构建通过。完整 Jest 为 28/31 通过，
+两首 B 站联网歌曲因候选时长与原曲不符未命中，另有一项 Windows 执行 `.sh`
+的错误码与测试预期不同。未配置酷狗登录凭证，暂未验证其登录后的真实取流。
+咪咕已实测《国际歌》完整音频可读取；匿名会员曲目会明确报登录/会员限制。
+
+
+### Docker 双端口部署
+
+`docker compose up -d --build` 同时开放 HTTP 8080 和 HTTPS 8081。
+部署前配置私有 `.env`（`QQ_COOKIE`、`PUBLIC_ENDPOINT` 等），并将服务证书和
+私钥放入 `certs/server.crt`、`certs/server.key`。`PUBLIC_ENDPOINT` 应设为客户端
+可访问的地址，例如 `http://服务器地址:8080`。使用自建 CA 时，客户端需要信任该 CA。
+证书私钥和 `.env` 不要提交到版本库。

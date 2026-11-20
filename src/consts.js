@@ -1,20 +1,11 @@
-const DEFAULT_SOURCE = ['kugou', 'bodian', 'migu', 'ytdlp'];
+const DEFAULT_SOURCE = ['qq', 'kuwo', 'kugou', 'migu', 'bodian', 'bilivideo'];
 const PROVIDERS = {
 	qq: require('./provider/qq'),
-	kugou: require('./provider/kugou'),
 	kuwo: require('./provider/kuwo'),
-	bodian: require('./provider/bodian'),
+	kugou: require('./provider/kugou'),
 	migu: require('./provider/migu'),
-	joox: require('./provider/joox'),
-	youtube: require('./provider/youtube'),
-	youtubedl: require('./provider/youtube-dl'),
-	ytdlp: require('./provider/yt-dlp'),
-	bilibili: require('./provider/bilibili'),
+	bodian: require('./provider/bodian'),
 	bilivideo: require('./provider/bilivideo'),
-	pyncmd: require('./provider/pyncmd'),
 };
 
-module.exports = {
-	DEFAULT_SOURCE,
-	PROVIDERS,
-};
+module.exports = { DEFAULT_SOURCE, PROVIDERS };

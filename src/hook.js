@@ -2,6 +2,7 @@ const parse = require('url').parse;
 const crypto = require('./crypto');
 const request = require('./request');
 const match = require('./provider/match');
+const { getMediaHeaders } = require('./provider/qq');
 const querystring = require('querystring');
 const { isHost, cookieToMap, mapToCookie } = require('./utilities');
 const { getManagedCacheStorage } = require('./cache');
@@ -472,7 +473,15 @@ hook.request.before = (ctx) => {
 			const id = data[1].replace(/\.\w+/, '');
 			req.url = url.href;
 			req.headers['host'] = url.hostname;
-			req.headers['cookie'] = null;
+			delete req.headers.cookie;
+			delete req.headers.authorization;
+			Object.assign(req.headers, getMediaHeaders(req.url));
+			if (
+				url.hostname.endsWith('.bilivideo.com') ||
+				url.hostname.endsWith('.akamaized.net')
+			) {
+				req.headers.referer = 'https://www.bilibili.com/';
+			}
 			ctx.package = { id };
 			ctx.decision = 'proxy';
 			// if (url.href.includes('google'))
@@ -1034,7 +1043,8 @@ const tryMatch = (ctx) => {
 			return match(songId)
 				.then((song) => {
 					const { os } = clientPlatform(req, netease);
-					item.type = song.br === 999000 ? 'flac' : 'mp3';
+					item.type =
+						song.type || (song.br === 999000 ? 'flac' : 'mp3');
 					item.url = global.endpoint
 						? `${packageEndpoint(os)}/package/${crypto.base64.encode(
 								song.url
@@ -1049,7 +1059,7 @@ const tryMatch = (ctx) => {
 					// reads the quality from them refuses a track it cannot
 					// classify. Describe the replacement the way upstream
 					// describes a track it serves itself.
-					item.encodeType = item.type;
+					item.encodeType = item.type === 'm4a' ? 'aac' : item.type;
 					item.level = audioLevel(item.br);
 					if ('time' in item && !item.time && song.duration)
 						item.time = song.duration;

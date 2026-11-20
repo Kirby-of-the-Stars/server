@@ -27,7 +27,7 @@ const headerReferer = new Map([
 ]);
 
 /**
- * @typedef {{ size: number, br: number | null, url: string | null, md5: string | null, source: string }} AudioData
+ * @typedef {{ size: number, br: number | null, url: string | null, md5: string | null, type: 'mp3' | 'flac' | 'm4a' | 'aac' | null, source: string }} AudioData
  */
 
 /**
@@ -44,7 +44,10 @@ async function getAudioFromSource(source, info) {
 	if (!audioData) throw new SongNotAvailable(source);
 
 	// Get the url from the song data.
-	const song = await check(audioData);
+	const song = await check(
+		audioData,
+		providers[source].getMediaHeaders?.(audioData)
+	);
 	logger.debug(song, 'The matched song is:');
 	if (!song || typeof song.url !== 'string')
 		throw new IncompleteAudioData(
@@ -141,12 +144,13 @@ async function match(id, source, data) {
  * @param url The URL to be fetched.
  * @return {Promise<AudioData>} The parsed audio data.
  */
-async function check(url) {
+async function check(url, mediaHeaders = {}) {
 	const isHost = isHostWrapper(url);
-	const song = { size: 0, br: null, url: null, md5: null };
+	const song = { size: 0, br: null, url: null, md5: null, type: null };
 	const header = {
 		range: 'bytes=0-8191',
 		'accept-encoding': 'identity',
+		...mediaHeaders,
 	};
 
 	// Set the "Referer" header.
@@ -161,31 +165,58 @@ async function check(url) {
 	} = response;
 
 	// Check if this request success.
-	if (!isHttpResponseOk(response.statusCode))
+	if (!isHttpResponseOk(response.statusCode)) {
+		response.destroy();
 		throw new RequestFailed(url, response.statusCode);
+	}
 
 	// Set the URL of this song.
 	song.url = response.url.href;
 
 	// Get the bitrate of this song.
-	const data = await response.body(true);
+	// A CDN may ignore Range. Read only the probe, never the whole track.
+	const data = await new Promise((resolve, reject) => {
+		const chunks = [];
+		let length = 0;
+		response.on('data', (chunk) => {
+			chunks.push(chunk.subarray(0, 8192 - length));
+			length += chunks[chunks.length - 1].length;
+			if (length === 8192) {
+				resolve(Buffer.concat(chunks));
+				response.destroy();
+			}
+		});
+		response.on('end', () => resolve(Buffer.concat(chunks)));
+		response.on('error', reject);
+	});
+	if (!data.length) throw new IncompleteAudioData('Empty audio response');
+	if (data.subarray(0, 4).toString() === 'fLaC') song.type = 'flac';
+	else if (data.subarray(4, 8).toString() === 'ftyp') song.type = 'm4a';
+	else if (headers['content-type']?.includes('audio/aac')) song.type = 'aac';
 
 	try {
 		const bitrate = decode(data);
 		song.br = bitrate && !isNaN(bitrate) ? bitrate * 1000 : null;
+		if (song.br && !song.type) song.type = 'mp3';
 	} catch (e) {
 		logger.debug(e, 'Failed to decode and extract the bitrate');
 	}
 
 	if (!song.br) {
-		if (isHost('qq.com') && song.url.includes('.m4a')) {
+		if (
+			isHost('qq.com') &&
+			(song.type === 'm4a' || song.url.includes('.m4a'))
+		) {
 			//m4a is the lowest audio quality of qq music, usually 96kbps
 			song.br = 96000;
 		}
 
-		if (isHost('bilivideo.com') && song.url.includes('.m4a')) {
+		if (
+			isHost('bilivideo.com') &&
+			(song.type === 'm4a' || song.url.includes('.m4a'))
+		) {
 			const result = song.url.match(/-(\d+)k\.m4a/);
-			let bitrate = parseInt(result);
+			let bitrate = parseInt(result?.[1]);
 
 			if (isNaN(bitrate)) {
 				bitrate = 192000;
@@ -196,10 +227,6 @@ async function check(url) {
 			}
 
 			song.br = bitrate;
-		}
-
-		if (isHost('googlevideo.com')) {
-			song.br = 128000;
 		}
 	}
 
@@ -218,13 +245,6 @@ async function check(url) {
 				(headers['content-range'] || '').split('/').pop() ||
 					headers['content-length']
 			) || 0;
-
-		// Check if the Content-Length equals 8192.
-		if (headers['content-length'] !== '8192') {
-			// I'm not sure how to describe this.
-			// Seems like not important.
-			return Promise.reject();
-		}
 	}
 
 	return song;

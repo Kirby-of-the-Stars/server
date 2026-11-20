@@ -21,12 +21,17 @@ const isHost = (url, host) => {
  */
 const isHostWrapper = (url) => (host) => isHost(url, host);
 
-const cookieToMap = (cookie) => {
-	return cookie
-		.split(';')
-		.map((cookie) => cookie.trim().split('='))
-		.reduce((obj, [key, value]) => ({ ...obj, [key]: value }), {});
-};
+const cookieToMap = (cookie) =>
+	Object.fromEntries(
+		cookie
+			.split(';')
+			.map((part) => part.trim())
+			.filter((part) => part.includes('='))
+			.map((part) => [
+				part.slice(0, part.indexOf('=')),
+				part.slice(part.indexOf('=') + 1),
+			])
+	);
 
 const mapToCookie = (map) => {
 	return Object.entries(map)

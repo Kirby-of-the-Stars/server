@@ -1,21 +1,15 @@
-FROM node:lts-alpine
+FROM node:22-alpine
 
-RUN set -ex && mkdir /app
-RUN apk add --no-cache python3 youtube-dl \
-    && wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp \
-    && printf '--cache-dir /var/cache/yt-dlp\n--js-runtimes node:/usr/local/bin/node\n' | tee /etc/yt-dlp.conf
-
-COPY ./precompiled/* /app/
+WORKDIR /app
+COPY ./precompiled/ /app/
+COPY ./THIRD_PARTY_NOTICES.md /app/
 COPY ./*.crt /app/
 COPY ./*.key /app/
 
-ENV SIGN_CERT /app/server.crt
-ENV SIGN_KEY /app/server.key
-ENV NODE_ENV production
-
-WORKDIR /app
+ENV SIGN_CERT=/app/server.crt
+ENV SIGN_KEY=/app/server.key
+ENV NODE_ENV=production
 
 EXPOSE 8080 8081
-
 ENTRYPOINT ["node", "app.js"]
+CMD ["-p", "8080:8081"]

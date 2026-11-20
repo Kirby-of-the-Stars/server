@@ -7,7 +7,6 @@ const { getManagedCacheStorage } = require('../cache');
 const format = (song) => ({
 	id: song.MUSICRID.split('_').pop(),
 	name: song.SONGNAME,
-	// duration: song.songTimeMinutes.split(':').reduce((minute, second) => minute * 60 + parseFloat(second), 0) * 1000,
 	duration: song.DURATION * 1000,
 	album: { id: song.ALBUMID, name: song.ALBUM },
 	artists: song.ARTIST.split('&').map((name, index) => ({
@@ -17,26 +16,6 @@ const format = (song) => ({
 });
 
 const search = (info) => {
-	// const keyword = encodeURIComponent(info.keyword.replace(' - ', ' '));
-	// const url = `http://www.kuwo.cn/api/www/search/searchMusicBykeyWord?key=${keyword}&pn=1&rn=30`;
-	// const cookie = process.env.KUWO_COOKIE || null;
-
-	// return request('GET', url, {
-	// 	referer: `http://www.kuwo.cn/search/list?key=${keyword}`,
-	// 	secret: cookie
-	// 		? (cookie.match(/Secret=([0-9a-f]{72})/) || [])[1]
-	// 		: null,
-	// 	cookie,
-	// })
-	// 	.then((response) => response.json())
-	// 	.then((jsonBody) => {
-	// 		if (!jsonBody || jsonBody.code !== 200 || jsonBody.data.total < 1)
-	// 			return Promise.reject();
-	// 		const list = jsonBody.data.list.map(format);
-	// 		const matched = select(list, info);
-	// 		return matched ? matched.id : Promise.reject();
-	// 	});
-
 	const keyword = encodeURIComponent(info.keyword.replace(' - ', ' '));
 	const url =
 		'http://search.kuwo.cn/r.s?&correct=1&vipver=1&stype=comprehensive&encoding=utf8' +
@@ -46,16 +25,16 @@ const search = (info) => {
 	return request('GET', url)
 		.then((response) => response.json())
 		.then((jsonBody) => {
-			if (
-				!jsonBody ||
-				jsonBody.content.length < 2 ||
-				!jsonBody.content[1].musicpage ||
-				jsonBody.content[1].musicpage.abslist.length < 1
-			)
-				return Promise.reject();
-			const list = jsonBody.content[1].musicpage.abslist.map(format);
+			const page = jsonBody.content?.find(
+				(section) => section.musicpage
+			)?.musicpage;
+			const songs = page?.abslist || [];
+			const list = songs
+				.flatMap((song) => [song, ...(song.SUBLIST || [])])
+				.map(format);
 			const matched = select(list, info);
-			return matched ? matched.id : Promise.reject();
+			if (!matched) throw new Error('Kuwo search has no matching song');
+			return matched.id;
 		});
 };
 
@@ -72,18 +51,30 @@ const track = (id) => {
 			)
 		: 'http://antiserver.kuwo.cn/anti.s?type=convert_url&format=mp3&response=url&rid=MUSIC_' +
 			id; // flac refuse
-	// : 'http://www.kuwo.cn/url?format=mp3&response=url&type=convert_url3&br=320kmp3&rid=' + id // flac refuse
 
 	return request('GET', url, { 'user-agent': 'okhttp/3.10.0' })
-		.then((response) => response.body())
-		.then((body) => {
-			const url = (body.match(/http[^\s$"]+/) || [])[0];
-			return url || Promise.reject();
+		.then((response) => {
+			if (response.statusCode !== 200)
+				throw new Error(
+					`Kuwo URL HTTP ${response.statusCode} for ${id}`
+				);
+			return response.body();
 		})
-		.catch(() => insure().kuwo.track(id));
+		.then((body) => {
+			// '$' belongs to Kuwo's signed query string; do not truncate it.
+			const url =
+				body.match(/^url=(https?:\/\/[^\r\n]+)/m)?.[1] || body.trim();
+			if (!/^https?:\/\/\S+$/.test(url))
+				throw new Error(`Kuwo returned no audio URL for ${id}`);
+			return url;
+		})
+		.catch((error) => {
+			if (!global.cnrelay) throw error;
+			return insure().kuwo.track(id);
+		});
 };
 
 const cs = getManagedCacheStorage('provider/kuwo');
 const check = (info) => cs.cache(info, () => search(info)).then(track);
 
-module.exports = { check, track };
+module.exports = { check, track, search };

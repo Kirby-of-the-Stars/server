@@ -6,6 +6,10 @@ const crypto = require('../crypto');
 const { logScope } = require('../logger');
 
 const logger = logScope('provider/bilivideo');
+const apiHeaders = {
+	referer: 'https://www.bilibili.com/',
+	cookie: process.env.BILIBILI_COOKIE || '',
+};
 const cs = getManagedCacheStorage('provider/bilivideo');
 
 //Wbi 和 API 部分参考： https://github.com/SocialSisterYi/bilibili-API-collect
@@ -52,6 +56,7 @@ async function getWbiKeys() {
 		'GET',
 		'https://api.bilibili.com/x/web-interface/nav',
 		{
+			...apiHeaders,
 			// SESSDATA 字段
 			'User-Agent':
 				'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
@@ -89,13 +94,20 @@ const signParam = async (param) => {
 const format = (song) => {
 	return {
 		id: song.bvid,
-		name: song.title,
+		name: song.title.replace(/<[^>]*>/g, ''),
+		duration: song.duration
+			? song.duration
+					.split(':')
+					.reduce((total, part) => total * 60 + Number(part), 0) *
+				1000
+			: undefined,
 		// album: {id: song.album_id, name: song.album_title},
-		artists: { id: song.typeid, name: song.typename },
+		// The uploader/category is not the performing artist.
 	};
 };
 
 const getBiliVideoHeader = async () => {
+	if (apiHeaders.cookie) return apiHeaders.cookie;
 	const url = 'https://www.bilibili.com';
 
 	return cs.cache('bilicookie', () =>
@@ -144,12 +156,10 @@ const track = (id) => {
 		const url =
 			'https://api.bilibili.com/x/web-interface/wbi/view?' + param;
 
-		return request('GET', url)
+		return request('GET', url, apiHeaders)
 			.then((response) => response.json())
 			.then((jsonBody) => {
 				if (jsonBody.code === 0) {
-					// bilibili music requires referer, connect do not support referer, so change to http
-
 					return signParam({
 						bvid: id,
 						cid: jsonBody.data.cid,
@@ -160,34 +170,43 @@ const track = (id) => {
 							'https://api.bilibili.com/x/player/wbi/playurl?' +
 							param;
 
-						return request('GET', url)
+						return request('GET', url, apiHeaders)
 							.then((response) => response.json())
 							.then((jsonBody) => {
 								const audio = jsonBody?.data?.dash?.audio;
 								const audioTrack = Array.isArray(audio)
-									? audio.find(
-											(item) =>
-												typeof item?.base_url ===
-													'string' ||
-												typeof item?.backup_url?.[0] ===
-													'string'
-										)
+									? audio
+											.filter(
+												(item) =>
+													item.base_url ||
+													item.baseUrl ||
+													item.backup_url?.[0] ||
+													item.backupUrl?.[0]
+											)
+											.sort(
+												(a, b) =>
+													b.bandwidth - a.bandwidth
+											)[0]
 									: undefined;
 								if (jsonBody?.code !== 0 || !audioTrack) {
 									return Promise.reject();
 								}
 								return (
 									audioTrack.base_url ||
-									audioTrack.backup_url[0]
+									audioTrack.baseUrl ||
+									audioTrack.backup_url?.[0] ||
+									audioTrack.backupUrl[0]
 								);
-							})
-							.catch(() => insure().bilibili.track(id));
+							});
 					});
 				} else {
 					return Promise.reject();
 				}
 			})
-			.catch(() => insure().bilibili.track(id));
+			.catch((error) => {
+				if (!global.cnrelay) throw error;
+				return insure().bilivideo.track(id);
+			});
 	});
 };
 
