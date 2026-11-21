@@ -89,6 +89,33 @@ test('matching rejects different artists, versions and durations; chooses closes
 	);
 });
 
+test('exact title and performer tolerate inaccurate imported track durations without accepting videos or wrong versions', () => {
+	const info = {
+		name: '你听得到',
+		duration: 239647,
+		artists: [{ name: '周杰伦' }],
+	};
+	const original = {
+		name: '你听得到',
+		duration: 230000,
+		artists: [{ name: '周杰伦' }],
+	};
+	assert.equal(select([original], info), original);
+	assert.equal(
+		select([{ ...original, artists: [{ name: '翻唱歌手' }] }], info),
+		undefined
+	);
+	assert.equal(
+		select([{ ...original, name: '你听得到 (Live)' }], info),
+		undefined
+	);
+	assert.equal(select([{ ...original, duration: 190000 }], info), undefined);
+	assert.equal(
+		select([{ name: '你听得到', duration: 230000 }], info),
+		undefined
+	);
+});
+
 test('QQ uses JMusicKook search/detail and batches media MID vkeys', async () => {
 	const calls = [];
 	const qq = load(

@@ -25,17 +25,26 @@ module.exports = (list, info) => {
 			return false;
 		if (info.name && version(song.name || '') !== version(info.name))
 			return false;
+		const artistMatched =
+			artists.length > 0 &&
+			Array.isArray(song.artists) &&
+			song.artists.some((artist) =>
+				artists.includes(normalize(artist.name))
+			);
+		if (artists.length && song.artists?.length && !artistMatched)
+			return false;
+		// Imported/orphan Netease entries can have inaccurate durations. A
+		// matching title AND performer permit 5% drift; videos stay within 5s.
+		const tolerance =
+			title === name && artistMatched
+				? Math.max(5000, info.duration * 0.05)
+				: 5000;
 		if (
 			info.duration &&
 			song.duration &&
-			Math.abs(song.duration - info.duration) > 5000
+			Math.abs(song.duration - info.duration) > tolerance
 		)
 			return false;
-		if (artists.length && song.artists?.length) {
-			return song.artists.some((artist) =>
-				artists.includes(normalize(artist.name))
-			);
-		}
 		return true;
 	});
 	return candidates.sort((a, b) => {

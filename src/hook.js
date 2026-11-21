@@ -410,6 +410,22 @@ hook.request.before = (ctx) => {
 					}
 					netease.path = netease.path.replace(/\/\d*$/, '');
 					ctx.netease = netease;
+					if (
+						netease.path.includes('/song/enhance/') &&
+						netease.path.includes('url')
+					) {
+						logger.info(
+							{
+								path: netease.path,
+								protocol: netease.crypto,
+								ids:
+									netease.param.ids ||
+									netease.param.id ||
+									null,
+							},
+							'Playback request received.'
+						);
+					}
 					// console.log(netease.path, netease.param)
 
 					// The download endpoints are answered by asking for the
@@ -624,6 +640,29 @@ hook.request.after = (ctx) => {
 					return value;
 				};
 
+				if (
+					netease.path.includes('/song/enhance/') &&
+					netease.path.includes('url')
+				) {
+					const entries = Array.isArray(netease.jsonBody.data)
+						? netease.jsonBody.data
+						: [netease.jsonBody.data];
+					logger.info(
+						{
+							path: netease.path,
+							protocol: netease.crypto,
+							code: netease.jsonBody.code,
+							tracks: entries.filter(Boolean).map((item) => ({
+								id: item.id,
+								code: item.code,
+								type: item.type,
+								br: item.br,
+								hasUrl: !!item.url,
+							})),
+						},
+						'Playback response prepared.'
+					);
+				}
 				let body = JSON.stringify(netease.jsonBody, inject);
 				body = body.replace(
 					/([^\\]"\s*:\s*)"(\d{16,})L"(\s*[}|,])/g,
@@ -645,6 +684,15 @@ hook.request.after = (ctx) => {
 					)
 			);
 	} else if (pkg) {
+		logger.info(
+			{
+				songId: pkg.id,
+				status: proxyRes.statusCode,
+				contentType: proxyRes.headers['content-type'],
+				range: req.headers.range || null,
+			},
+			'Replacement media requested.'
+		);
 		if (new Set([201, 301, 302, 303, 307, 308]).has(proxyRes.statusCode)) {
 			return request(
 				req.method,
